@@ -1,4 +1,4 @@
-"""Interactive CARLA driving window that publishes ABS telemetry only."""
+"""Pygame ABS dashboard with a separate native CARLA chase view."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import queue
 import threading
 import urllib.error
 import urllib.request
+from collections import deque
 from typing import Any
 
 try:
@@ -90,6 +91,51 @@ class TelemetryPublisher:
             self.error = f"Telemetry publishing stopped: {exc}"
 
 
+class DiagnosticStateReader:
+    """Poll compact model results without blocking the 100 Hz CARLA loop."""
+
+    def __init__(self, api_url: str) -> None:
+        self.api_url = api_url
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self.state: dict[str, Any] = {}
+        self.history = {wheel: deque(maxlen=120) for wheel in WHEELS}
+        self.error: str | None = None
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def snapshot(self) -> tuple[dict[str, Any], str | None]:
+        with self._lock:
+            snapshot = dict(self.state)
+            snapshot["_residual_history"] = {
+                wheel: list(values) for wheel, values in self.history.items()
+            }
+            return snapshot, self.error
+
+    def close(self) -> None:
+        self._stop.set()
+        self.thread.join(timeout=3.0)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                state = api_request(self.api_url, "/api/live/hud", timeout=5.0)
+                with self._lock:
+                    self.state = state
+                    diagnostic = state.get("diagnostic") or {}
+                    frames = diagnostic.get("frames") or []
+                    latest = frames[-1].get("wheels", {}) if frames else {}
+                    for wheel in WHEELS:
+                        residual = latest.get(wheel, {}).get("residual_mps")
+                        if residual is not None:
+                            self.history[wheel].append(float(residual))
+                    self.error = None
+            except Exception as exc:
+                with self._lock:
+                    self.error = str(exc)
+            self._stop.wait(0.5)
+
+
 class GlobalKeyboardControl:
     """Capture driving keys even while the CARLA server window has focus."""
 
@@ -163,6 +209,180 @@ class GlobalKeyboardControl:
         self.listener.join(timeout=2.0)
 
 
+FAULT_OPTIONS = (
+    ("none", "All sensors healthy"),
+    ("FL", "Front-left sensor faulty"),
+    ("FR", "Front-right sensor faulty"),
+    ("RL", "Rear-left sensor faulty"),
+    ("RR", "Rear-right sensor faulty"),
+)
+
+COLORS = {
+    "background": (7, 16, 25),
+    "panel": (13, 30, 44),
+    "panel_alt": (17, 39, 54),
+    "text": (235, 244, 250),
+    "muted": (137, 160, 179),
+    "green": (63, 220, 158),
+    "amber": (245, 174, 66),
+    "red": (239, 82, 82),
+    "blue": (82, 166, 245),
+}
+
+
+def dashboard_fonts() -> dict[str, Any]:
+    return {
+        "title": pygame.font.SysFont("segoeui", 27, bold=True),
+        "heading": pygame.font.SysFont("segoeui", 20, bold=True),
+        "percent": pygame.font.SysFont("segoeui", 34, bold=True),
+        "body": pygame.font.SysFont("consolas", 16),
+        "small": pygame.font.SysFont("consolas", 13),
+        "tiny": pygame.font.SysFont("consolas", 11),
+    }
+
+
+def choose_fault(display: Any, fonts: dict[str, Any], default: str) -> str:
+    selected = next(
+        (index for index, option in enumerate(FAULT_OPTIONS) if option[0] == default),
+        0,
+    )
+    clock = pygame.time.Clock()
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                raise KeyboardInterrupt
+            if event.type != pygame.KEYDOWN:
+                continue
+            if event.key == pygame.K_ESCAPE:
+                raise KeyboardInterrupt
+            if event.key in {pygame.K_UP, pygame.K_w}:
+                selected = (selected - 1) % len(FAULT_OPTIONS)
+            elif event.key in {pygame.K_DOWN, pygame.K_s}:
+                selected = (selected + 1) % len(FAULT_OPTIONS)
+            elif pygame.K_1 <= event.key <= pygame.K_5:
+                selected = event.key - pygame.K_1
+            elif event.key in {pygame.K_RETURN, pygame.K_KP_ENTER}:
+                return FAULT_OPTIONS[selected][0]
+
+        display.fill(COLORS["background"])
+        display.blit(fonts["title"].render("ABS LIVE DIAGNOSTIC", True, COLORS["text"]), (54, 45))
+        display.blit(fonts["body"].render("Select the sensor condition before driving", True, COLORS["muted"]), (56, 88))
+        panel = pygame.Rect(52, 130, min(680, display.get_width() - 104), 390)
+        pygame.draw.rect(display, COLORS["panel"], panel, border_radius=16)
+        for index, (_, label) in enumerate(FAULT_OPTIONS):
+            row = pygame.Rect(panel.x + 22, panel.y + 22 + index * 67, panel.width - 44, 52)
+            active = index == selected
+            pygame.draw.rect(display, (27, 73, 91) if active else COLORS["panel_alt"], row, border_radius=10)
+            color = COLORS["green"] if active else COLORS["text"]
+            display.blit(fonts["body"].render(f"{index + 1}   {label}", True, color), (row.x + 16, row.y + 14))
+        display.blit(fonts["small"].render("UP/DOWN or 1-5 select  ·  ENTER start  ·  ESC cancel", True, COLORS["muted"]), (56, panel.bottom + 24))
+        pygame.display.flip()
+        clock.tick(30)
+
+
+def decision_color(state: str) -> tuple[int, int, int]:
+    if state in {"CONFIRMED_FAULTY", "SUSPECTED_FAULTY"}:
+        return COLORS["red"]
+    if state in {"WARNING", "CROSS_EFFECT", "AMBIGUOUS", "INSUFFICIENT_SIGNAL"}:
+        return COLORS["amber"]
+    if state == "HEALTHY":
+        return COLORS["green"]
+    return COLORS["blue"]
+
+
+def wheel_card_rects(width: int) -> dict[str, Any]:
+    margin, gap = 24, 12
+    card_width = (width - margin * 2 - gap * 3) // 4
+    return {
+        wheel: pygame.Rect(margin + index * (card_width + gap), 112, card_width, 205)
+        for index, wheel in enumerate(WHEELS)
+    }
+
+
+def render_dashboard(
+    display: Any,
+    fonts: dict[str, Any],
+    state: dict[str, Any],
+    state_error: str | None,
+    measurements: dict[str, dict[str, float | bool | str]],
+    vehicle_speed_mps: float,
+    selected_wheel: str,
+    configured_fault: str,
+) -> None:
+    display.fill(COLORS["background"])
+    diagnostic = state.get("diagnostic") or {}
+    summaries = diagnostic.get("wheels") or {}
+    frames = diagnostic.get("frames") or []
+    latest = frames[-1].get("wheels", {}) if frames else {}
+
+    display.blit(fonts["title"].render("ABS DIAGNOSTIC PLATFORM", True, COLORS["text"]), (24, 20))
+    display.blit(fonts["small"].render("CARLA native 3D view · WASD/arrows drive · SPACE brake · ESC stop", True, COLORS["muted"]), (25, 61))
+    speed_text = fonts["heading"].render(f"{vehicle_speed_mps * 3.6:5.1f} km/h", True, COLORS["text"])
+    display.blit(speed_text, (display.get_width() - speed_text.get_width() - 26, 22))
+    fault_label = "ALL SENSORS HEALTHY" if configured_fault == "none" else f"INJECTED FAULT · {configured_fault}"
+    display.blit(fonts["small"].render(fault_label, True, COLORS["green"]), (25, 84))
+
+    for wheel, rect in wheel_card_rects(display.get_width()).items():
+        summary = summaries.get(wheel, {})
+        decision = summary.get("decision", {})
+        state_name = str(decision.get("state", "COLLECTING"))
+        color = decision_color(state_name)
+        health = float(summary.get("health", {}).get("health_percent", 100.0) or 0.0)
+        probability = float(decision.get("independent_probability", 0.0) or 0.0)
+        measured = latest.get(wheel, {}).get("measured_mps")
+        if measured is None:
+            measured = measurements.get(wheel, {}).get("speed_mps", 0.0)
+        valid = bool(measurements.get(wheel, {}).get("valid", False))
+
+        pygame.draw.rect(display, COLORS["panel_alt"] if wheel == selected_wheel else COLORS["panel"], rect, border_radius=12)
+        pygame.draw.rect(display, color, rect, width=3 if wheel == selected_wheel else 1, border_radius=12)
+        display.blit(fonts["heading"].render(wheel, True, COLORS["text"]), (rect.x + 15, rect.y + 12))
+        display.blit(fonts["small"].render(state_name.replace("_", " ")[:20], True, color), (rect.x + 15, rect.y + 44))
+        display.blit(fonts["percent"].render(f"{health:.0f}%", True, color), (rect.x + 15, rect.y + 70))
+        display.blit(fonts["small"].render(f"Speed  {float(measured or 0.0) * 3.6:5.1f} km/h", True, COLORS["muted"]), (rect.x + 15, rect.y + 126))
+        display.blit(fonts["small"].render(f"Model  {probability * 100:5.1f}%", True, COLORS["muted"]), (rect.x + 15, rect.y + 151))
+        display.blit(fonts["small"].render("VALID" if valid else "PULSE LOSS", True, COLORS["green"] if valid else COLORS["red"]), (rect.x + 15, rect.y + 176))
+
+    detail = pygame.Rect(24, 337, display.get_width() - 48, display.get_height() - 361)
+    pygame.draw.rect(display, COLORS["panel"], detail, border_radius=14)
+    selected = summaries.get(selected_wheel, {})
+    decision = selected.get("decision", {})
+    old_spc = selected.get("old_spc", {})
+    state_name = str(decision.get("state", "COLLECTING"))
+    color = decision_color(state_name)
+    display.blit(fonts["heading"].render(f"{selected_wheel} SENSOR DETAIL", True, COLORS["text"]), (detail.x + 18, detail.y + 16))
+    display.blit(fonts["small"].render("Click a wheel card to inspect it", True, COLORS["muted"]), (detail.x + 18, detail.y + 48))
+
+    values = (
+        ("Final decision", state_name.replace("_", " "), color),
+        ("SPC status", str(old_spc.get("class", "COLLECTING")).replace("_", " "), COLORS["text"]),
+        ("Independent probability", f"{float(decision.get('independent_probability', 0.0) or 0.0) * 100:.2f}%", COLORS["text"]),
+        ("Alarm samples", str(old_spc.get("alarm_sample_count", 0)), COLORS["text"]),
+    )
+    for index, (label, value, value_color) in enumerate(values):
+        x = detail.x + 18 + index * ((detail.width - 36) // 4)
+        display.blit(fonts["tiny"].render(label.upper(), True, COLORS["muted"]), (x, detail.y + 82))
+        display.blit(fonts["body"].render(value, True, value_color), (x, detail.y + 104))
+
+    chart = pygame.Rect(detail.x + 18, detail.y + 146, detail.width - 36, max(70, detail.height - 174))
+    pygame.draw.rect(display, (8, 21, 31), chart, border_radius=8)
+    pygame.draw.line(display, (42, 66, 82), (chart.x, chart.centery), (chart.right, chart.centery), 1)
+    history = state.get("_residual_history", {}).get(selected_wheel, [])
+    if len(history) > 1:
+        scale = max(0.25, max(abs(value) for value in history))
+        points = []
+        for index, value in enumerate(history):
+            x = chart.x + index * chart.width / max(1, len(history) - 1)
+            y = chart.centery - (value / scale) * (chart.height * 0.42)
+            points.append((int(x), int(y)))
+        pygame.draw.lines(display, color, False, points, 2)
+    display.blit(fonts["tiny"].render("LIVE RESIDUAL HISTORY", True, COLORS["muted"]), (chart.x + 10, chart.y + 8))
+
+    warning = state_error or state.get("telemetry_warning") or state.get("diagnostic_error")
+    if warning:
+        display.blit(fonts["tiny"].render(str(warning)[:120], True, COLORS["red"]), (detail.x + 18, detail.bottom - 20))
+
+
 def build_frame(
     vehicle: Any,
     timestamp_s: float,
@@ -188,6 +408,24 @@ def build_frame(
 def run(arguments: argparse.Namespace) -> None:
     driver_config = api_request(arguments.api_url, "/api/live/config")
     config = driver_config["config"]
+
+    pygame.init()
+    pygame.font.init()
+    display = pygame.display.set_mode((arguments.width, arguments.height))
+    pygame.display.set_caption("ABS diagnostic dashboard · CARLA live")
+    fonts = dashboard_fonts()
+    try:
+        selected_fault = choose_fault(display, fonts, str(config["fault_wheel"]))
+    except KeyboardInterrupt:
+        pygame.quit()
+        api_request(arguments.api_url, "/api/live/driver-stopped", {})
+        return
+    config = api_request(
+        arguments.api_url,
+        "/api/live/driver-config",
+        {"fault_wheel": selected_fault},
+    )["config"]
+
     geometry = VehicleGeometry()
     sensor_config = SensorConfig()
     fault = FaultConfig(
@@ -214,12 +452,8 @@ def run(arguments: argparse.Namespace) -> None:
 
     vehicle = None
     publisher = TelemetryPublisher(arguments.api_url)
-    pygame.init()
-    pygame.font.init()
-    display = pygame.display.set_mode((arguments.width, arguments.height))
-    pygame.display.set_caption("CARLA manual drive · ABS live diagnostics")
-    font = pygame.font.SysFont("consolas", 18)
     keyboard_control = GlobalKeyboardControl()
+    state_reader: DiagnosticStateReader | None = None
 
     try:
         blueprints = list(world.get_blueprint_library().filter(config["vehicle_filter"]))
@@ -235,17 +469,28 @@ def run(arguments: argparse.Namespace) -> None:
             "/api/live/driver-started",
             {"map": world.get_map().name, "vehicle": vehicle.type_id},
         )
+        state_reader = DiagnosticStateReader(arguments.api_url)
 
         running = True
         steer_cache = 0.0
+        selected_wheel = "FL"
         sample_index = 0
         batch: list[dict[str, Any]] = []
+        measurements: dict[str, dict[str, float | bool | str]] = {
+            wheel: {"speed_mps": 0.0, "valid": False} for wheel in WHEELS
+        }
         clock = pygame.time.Clock()
         spectator = world.get_spectator()
         while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    for wheel, rect in wheel_card_rects(display.get_width()).items():
+                        if rect.collidepoint(event.pos):
+                            selected_wheel = wheel
+                elif event.type == pygame.KEYDOWN and pygame.K_1 <= event.key <= pygame.K_4:
+                    selected_wheel = WHEELS[event.key - pygame.K_1]
             control, steer_cache, escape = keyboard_control.control(steer_cache)
             if escape:
                 running = False
@@ -254,8 +499,8 @@ def run(arguments: argparse.Namespace) -> None:
             sample_index += 1
             timestamp_s = sample_index * 0.01
 
-            # Keep CARLA's native spectator behind the vehicle. No RGB camera
-            # sensor is created and the browser receives measurements only.
+            # Keep CARLA's native spectator behind the vehicle. No RGB sensor
+            # is created; the Pygame dashboard receives measurements only.
             vehicle_transform = vehicle.get_transform()
             forward = vehicle_transform.get_forward_vector()
             spectator_location = carla.Location(
@@ -287,12 +532,19 @@ def run(arguments: argparse.Namespace) -> None:
                 if state.get("stop_requested"):
                     running = False
 
-            display.fill((7, 17, 26))
-            display.blit(font.render("CARLA VEHICLE CONTROL", True, (235, 245, 250)), (18, 12))
-            display.blit(font.render("GLOBAL KEYS · WASD/arrows drive · SPACE brake · ESC stop", True, (160, 178, 196)), (18, 42))
-            fault_text = "all sensors healthy" if fault.wheel is None else f"{fault.wheel} intermittent loss · severity {fault.severity:.2f}"
-            display.blit(font.render(fault_text, True, (82, 227, 165)), (18, 72))
-            display.blit(font.render("3D chase view stays in the CarlaUE4 window", True, (96, 165, 250)), (18, 102))
+            hud_state, hud_error = state_reader.snapshot()
+            velocity = vehicle.get_velocity()
+            vehicle_speed = (velocity.x**2 + velocity.y**2 + velocity.z**2) ** 0.5
+            render_dashboard(
+                display,
+                fonts,
+                hud_state,
+                hud_error,
+                measurements,
+                vehicle_speed,
+                selected_wheel,
+                str(config["fault_wheel"]),
+            )
             pygame.display.flip()
             clock.tick_busy_loop(100)
 
@@ -302,6 +554,8 @@ def run(arguments: argparse.Namespace) -> None:
         try:
             publisher.close()
         finally:
+            if state_reader is not None:
+                state_reader.close()
             keyboard_control.close()
             if vehicle is not None:
                 vehicle.destroy()
@@ -318,8 +572,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-url", default="http://127.0.0.1:8765")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2000)
-    parser.add_argument("--width", type=int, default=620)
-    parser.add_argument("--height", type=int, default=140)
+    parser.add_argument("--width", type=int, default=1100)
+    parser.add_argument("--height", type=int, default=700)
     return parser
 
 

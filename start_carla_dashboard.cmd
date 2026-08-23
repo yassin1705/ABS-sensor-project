@@ -1,3 +1,13 @@
 @echo off
-rem Compatibility launcher: restore the original browser dashboard workflow.
-call "%~dp0start_diagnostic_platform.cmd"
+setlocal
+cd /d "%~dp0"
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_carla_dashboard.ps1"
+
+if errorlevel 1 (
+    echo.
+    echo The CARLA Pygame dashboard stopped with an error.
+    pause
+)
+
+endlocal

@@ -46,15 +46,16 @@ by at least 0.10; otherwise the result remains ambiguous.
 The dashboard replays the returned 500 samples at 100 Hz. The health percentage
 is a documented prototype heuristic, not a calibrated failure probability.
 
-## Live CARLA drive
+## Live CARLA drive with Pygame
 
 The home dashboard also supports a live CARLA session:
 
 1. Start the CARLA server directly on Town04 using the more stable D3D11 path:
    `CarlaUE4.exe /Game/Carla/Maps/Town04 -quality-level=Low -dx11 -windowed -ResX=960 -ResY=540`.
-2. Start this platform with `start_diagnostic_platform.cmd`.
-3. Select all-healthy sensors or one faulty wheel in the dashboard.
-4. Press **Start live drive**. A separate CARLA/Pygame driving window opens.
+2. Start this platform with `start_carla_dashboard.cmd` or
+   `start_diagnostic_platform.cmd`.
+3. Select all-healthy sensors or one faulty wheel in the Pygame setup screen.
+4. Press Enter. The live Pygame diagnostic dashboard opens.
 5. Drive with WASD or the arrow keys; Space applies the handbrake and Escape
    stops the session.
 
@@ -64,5 +65,5 @@ evaluated on a rolling 500-sample window every 50 new samples.
 
 ## Start locally
 
-Double-click `start_diagnostic_platform.cmd` at the project root. The launcher
-starts the Python API, the dashboard, and opens `http://localhost:3000`.
+Double-click `start_carla_dashboard.cmd` at the project root. The launcher
+starts the Python API and Pygame dashboard; no web server or browser is needed.

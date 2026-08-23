@@ -9,13 +9,13 @@ environment:
 
 `carla_abs_simulator.py` generates fixed five-second CSV datasets.
 
-`carla_live_driver.py` is launched automatically by the diagnostic browser
-dashboard. It owns CARLA synchronous ticks, keeps CARLA's native spectator
-behind the vehicle, estimates four wheel speeds, emulates ABS pulses and the
-ECU, and publishes measurement batches to the local diagnostic API.
+`carla_live_driver.py` is the Pygame diagnostic interface. It owns CARLA
+synchronous ticks, keeps CARLA's native spectator behind the vehicle, estimates
+four wheel speeds, emulates ABS pulses and the ECU, and publishes measurement
+batches to the local diagnostic API.
 
-Choose all healthy sensors or one faulty wheel in the browser before starting.
-A small Pygame status window reports the controls and selected fault, while the
-3D chase view remains in `CarlaUE4.exe`. WASD or the arrow keys drive, Space
-applies the handbrake, and Escape stops the session. No RGB camera sensor is
-created and only measurements are sent to the browser dashboard.
+The Pygame setup screen selects all healthy sensors or one faulty wheel. During
+the drive it displays four live wheel cards, health percentages, final model/SPC
+decisions, selected-wheel details, and residual history. The 3D chase view stays
+in `CarlaUE4.exe`. WASD or the arrow keys drive, Space applies the handbrake,
+and Escape stops the session. No RGB camera sensor or browser is used.
