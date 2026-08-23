@@ -58,14 +58,6 @@ The home dashboard also supports a live CARLA session:
 5. Drive with WASD or the arrow keys; Space applies the handbrake and Escape
    stops the session.
 
-### Combined CARLA camera and dashboard
-
-For a simple native cockpit diagnostic view, start CARLA and then run
-`start_carla_dashboard.cmd`. Select the sensor condition in the temporary
-Pygame setup window and press Enter. The setup window closes, CARLA switches to
-the cockpit spectator, and four wheel-health percentages appear in the 3D
-view. The browser dashboard is not required.
-
 The driving window remains local. Only compact 100 Hz ABS telemetry is sent to
 the diagnostic API. GRU/SPC starts after its 20-sample warm-up, and CNN/GRU is
 evaluated on a rolling 500-sample window every 50 new samples.

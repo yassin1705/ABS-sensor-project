@@ -1,4 +1,4 @@
-"""Combined CARLA camera, vehicle controls, and live ABS diagnostic HUD."""
+"""Interactive CARLA driving window that publishes ABS telemetry only."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import argparse
 import json
 import queue
 import threading
-import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -91,43 +90,6 @@ class TelemetryPublisher:
             self.error = f"Telemetry publishing stopped: {exc}"
 
 
-class DiagnosticStateReader:
-    """Poll the compact diagnostic feed without blocking CARLA world ticks."""
-
-    def __init__(self, api_url: str) -> None:
-        self.api_url = api_url
-        self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self.state: dict[str, Any] = {}
-        self.error: str | None = None
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
-
-    def snapshot(self) -> tuple[dict[str, Any], str | None]:
-        with self._lock:
-            return dict(self.state), self.error
-
-    def close(self) -> None:
-        self._stop.set()
-        self.thread.join(timeout=3.0)
-
-    def _run(self) -> None:
-        while not self._stop.is_set():
-            try:
-                state = api_request(
-                    self.api_url,
-                    "/api/live/hud",
-                    timeout=5.0,
-                )
-                with self._lock:
-                    self.state = state
-                    self.error = None
-            except Exception as exc:
-                with self._lock:
-                    self.error = str(exc)
-            self._stop.wait(0.5)
-
-
 class GlobalKeyboardControl:
     """Capture driving keys even while the CARLA server window has focus."""
 
@@ -201,110 +163,6 @@ class GlobalKeyboardControl:
         self.listener.join(timeout=2.0)
 
 
-FAULT_OPTIONS = (
-    ("none", "All sensors healthy"),
-    ("FL", "Front-left sensor faulty"),
-    ("FR", "Front-right sensor faulty"),
-    ("RL", "Rear-left sensor faulty"),
-    ("RR", "Rear-right sensor faulty"),
-)
-
-def choose_fault(display: Any, fonts: dict[str, Any], default: str) -> str:
-    """Show the pre-drive sensor-state selector in the combined window."""
-    selected = next(
-        (index for index, option in enumerate(FAULT_OPTIONS) if option[0] == default),
-        0,
-    )
-    clock = pygame.time.Clock()
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                raise KeyboardInterrupt
-            if event.type != pygame.KEYDOWN:
-                continue
-            if event.key == pygame.K_ESCAPE:
-                raise KeyboardInterrupt
-            if event.key in {pygame.K_UP, pygame.K_w}:
-                selected = (selected - 1) % len(FAULT_OPTIONS)
-            elif event.key in {pygame.K_DOWN, pygame.K_s}:
-                selected = (selected + 1) % len(FAULT_OPTIONS)
-            elif pygame.K_1 <= event.key <= pygame.K_5:
-                selected = event.key - pygame.K_1
-            elif event.key in {pygame.K_RETURN, pygame.K_KP_ENTER}:
-                return FAULT_OPTIONS[selected][0]
-
-        display.fill((7, 16, 25))
-        display.blit(
-            fonts["title"].render("ABS SENSOR SETUP", True, (235, 244, 250)),
-            (54, 48),
-        )
-        display.blit(
-            fonts["body"].render(
-                "Choose the sensor state before the simulation begins",
-                True,
-                (145, 166, 185),
-            ),
-            (56, 92),
-        )
-        panel = pygame.Rect(52, 138, min(650, display.get_width() - 104), 390)
-        pygame.draw.rect(display, (13, 30, 44), panel, border_radius=16)
-        for index, (_, label) in enumerate(FAULT_OPTIONS):
-            row = pygame.Rect(panel.x + 22, panel.y + 22 + index * 67, panel.width - 44, 52)
-            active = index == selected
-            pygame.draw.rect(
-                display,
-                (28, 76, 94) if active else (18, 40, 55),
-                row,
-                border_radius=10,
-            )
-            color = (102, 225, 190) if active else (203, 216, 225)
-            display.blit(
-                fonts["body"].render(f"{index + 1}   {label}", True, color),
-                (row.x + 16, row.y + 14),
-            )
-        display.blit(
-            fonts["small"].render(
-                "UP/DOWN or 1-5 to select  ·  ENTER to start  ·  ESC to cancel",
-                True,
-                (126, 151, 171),
-            ),
-            (56, panel.bottom + 25),
-        )
-        pygame.display.flip()
-        clock.tick(30)
-
-
-def draw_cockpit_health(world: Any, vehicle: Any, state: dict[str, Any]) -> None:
-    """Draw four wheel-health percentages in front of the native cockpit view."""
-    diagnostic = state.get("diagnostic") or {}
-    wheel_summaries = diagnostic.get("wheels") or {}
-    transform = vehicle.get_transform()
-    lateral_positions = {"FL": -0.72, "FR": -0.24, "RL": 0.24, "RR": 0.72}
-
-    for wheel in WHEELS:
-        summary = wheel_summaries.get(wheel, {})
-        health = float(summary.get("health", {}).get("health_percent", 100.0) or 0.0)
-        decision = str(summary.get("decision", {}).get("state", "COLLECTING"))
-        if decision in {"CONFIRMED_FAULTY", "SUSPECTED_FAULTY"}:
-            color = carla.Color(255, 65, 65)
-        elif decision in {"WARNING", "CROSS_EFFECT", "AMBIGUOUS"}:
-            color = carla.Color(255, 190, 55)
-        else:
-            color = carla.Color(70, 255, 165)
-
-        location = transform.transform(
-            carla.Location(x=2.1, y=lateral_positions[wheel], z=1.08)
-        )
-        world.debug.draw_string(
-            location,
-            f"{wheel} {health:3.0f}%",
-            draw_shadow=True,
-            color=color,
-            life_time=0.15,
-            persistent_lines=False,
-        )
-
-
 def build_frame(
     vehicle: Any,
     timestamp_s: float,
@@ -330,38 +188,6 @@ def build_frame(
 def run(arguments: argparse.Namespace) -> None:
     driver_config = api_request(arguments.api_url, "/api/live/config")
     config = driver_config["config"]
-
-    pygame.init()
-    pygame.font.init()
-    display_width = max(720, arguments.width)
-    display_height = max(600, arguments.height)
-    display = pygame.display.set_mode((display_width, display_height))
-    pygame.display.set_caption("CARLA drive · ABS diagnostic board")
-    fonts = {
-        "title": pygame.font.SysFont("segoeui", 25, bold=True),
-        "heading": pygame.font.SysFont("segoeui", 20, bold=True),
-        "body": pygame.font.SysFont("consolas", 17),
-        "small": pygame.font.SysFont("consolas", 14),
-        "tiny": pygame.font.SysFont("consolas", 12),
-    }
-    try:
-        selected_fault = choose_fault(display, fonts, str(config["fault_wheel"]))
-    except KeyboardInterrupt:
-        pygame.quit()
-        try:
-            api_request(arguments.api_url, "/api/live/driver-stopped", {})
-        except Exception:
-            pass
-        return
-    config = api_request(
-        arguments.api_url,
-        "/api/live/driver-config",
-        {"fault_wheel": selected_fault},
-    )["config"]
-    # Pygame is used only for pre-drive configuration. The actual drive uses
-    # CARLA's native window, avoiding the unstable RGB PixelReader path.
-    pygame.quit()
-
     geometry = VehicleGeometry()
     sensor_config = SensorConfig()
     fault = FaultConfig(
@@ -388,8 +214,12 @@ def run(arguments: argparse.Namespace) -> None:
 
     vehicle = None
     publisher = TelemetryPublisher(arguments.api_url)
+    pygame.init()
+    pygame.font.init()
+    display = pygame.display.set_mode((arguments.width, arguments.height))
+    pygame.display.set_caption("CARLA manual drive · ABS live diagnostics")
+    font = pygame.font.SysFont("consolas", 18)
     keyboard_control = GlobalKeyboardControl()
-    state_reader: DiagnosticStateReader | None = None
 
     try:
         blueprints = list(world.get_blueprint_library().filter(config["vehicle_filter"]))
@@ -405,15 +235,17 @@ def run(arguments: argparse.Namespace) -> None:
             "/api/live/driver-started",
             {"map": world.get_map().name, "vehicle": vehicle.type_id},
         )
-        state_reader = DiagnosticStateReader(arguments.api_url)
 
         running = True
         steer_cache = 0.0
         sample_index = 0
         batch: list[dict[str, Any]] = []
+        clock = pygame.time.Clock()
         spectator = world.get_spectator()
         while running:
-            loop_started = time.perf_counter()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
             control, steer_cache, escape = keyboard_control.control(steer_cache)
             if escape:
                 running = False
@@ -422,17 +254,20 @@ def run(arguments: argparse.Namespace) -> None:
             sample_index += 1
             timestamp_s = sample_index * 0.01
 
-            # Native spectator cockpit: no RGB sensor and therefore no
-            # PixelReader render/copy path that can crash packaged CARLA.
+            # Keep CARLA's native spectator behind the vehicle. No RGB camera
+            # sensor is created and the browser receives measurements only.
             vehicle_transform = vehicle.get_transform()
-            cockpit_location = vehicle_transform.transform(
-                carla.Location(x=0.35, y=-0.32, z=1.25)
+            forward = vehicle_transform.get_forward_vector()
+            spectator_location = carla.Location(
+                x=vehicle_transform.location.x - forward.x * 6.5,
+                y=vehicle_transform.location.y - forward.y * 6.5,
+                z=vehicle_transform.location.z + 3.2,
             )
             spectator.set_transform(
                 carla.Transform(
-                    cockpit_location,
+                    spectator_location,
                     carla.Rotation(
-                        pitch=-3.0,
+                        pitch=-14.0,
                         yaw=vehicle_transform.rotation.yaw,
                         roll=0.0,
                     ),
@@ -452,13 +287,14 @@ def run(arguments: argparse.Namespace) -> None:
                 if state.get("stop_requested"):
                     running = False
 
-            if sample_index % 10 == 0:
-                hud_state, _ = state_reader.snapshot()
-                draw_cockpit_health(world, vehicle, hud_state)
-
-            remaining = 0.01 - (time.perf_counter() - loop_started)
-            if remaining > 0:
-                time.sleep(remaining)
+            display.fill((7, 17, 26))
+            display.blit(font.render("CARLA VEHICLE CONTROL", True, (235, 245, 250)), (18, 12))
+            display.blit(font.render("GLOBAL KEYS · WASD/arrows drive · SPACE brake · ESC stop", True, (160, 178, 196)), (18, 42))
+            fault_text = "all sensors healthy" if fault.wheel is None else f"{fault.wheel} intermittent loss · severity {fault.severity:.2f}"
+            display.blit(font.render(fault_text, True, (82, 227, 165)), (18, 72))
+            display.blit(font.render("3D chase view stays in the CarlaUE4 window", True, (96, 165, 250)), (18, 102))
+            pygame.display.flip()
+            clock.tick_busy_loop(100)
 
         if batch:
             publisher.publish(batch)
@@ -466,8 +302,6 @@ def run(arguments: argparse.Namespace) -> None:
         try:
             publisher.close()
         finally:
-            if state_reader is not None:
-                state_reader.close()
             keyboard_control.close()
             if vehicle is not None:
                 vehicle.destroy()
@@ -484,8 +318,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-url", default="http://127.0.0.1:8765")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2000)
-    parser.add_argument("--width", type=int, default=760)
-    parser.add_argument("--height", type=int, default=600)
+    parser.add_argument("--width", type=int, default=620)
+    parser.add_argument("--height", type=int, default=140)
     return parser
 
 

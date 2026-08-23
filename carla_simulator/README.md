@@ -9,20 +9,13 @@ environment:
 
 `carla_abs_simulator.py` generates fixed five-second CSV datasets.
 
-`carla_live_driver.py` is launched automatically by either the web dashboard or
-`start_carla_dashboard.cmd`. It owns CARLA synchronous ticks, estimates four
-wheel speeds, emulates ABS pulses and the ECU, and publishes measurement batches
-to the local diagnostic API.
+`carla_live_driver.py` is launched automatically by the diagnostic browser
+dashboard. It owns CARLA synchronous ticks, keeps CARLA's native spectator
+behind the vehicle, estimates four wheel speeds, emulates ABS pulses and the
+ECU, and publishes measurement batches to the local diagnostic API.
 
-Before driving, the Pygame setup window lets you choose all healthy sensors or
-one faulty wheel with 1-5 and Enter. It then closes, and CARLA's native
-spectator follows the vehicle from a cockpit position. Four wheel-health
-percentages are drawn in the native 3D view. No RGB camera sensor is created,
-which avoids CARLA's packaged PixelReader crash. WASD or the arrow keys drive,
-Space applies the handbrake, and Escape stops the session. Only measurements
-are sent to the diagnostic API.
-
-To run without the browser dashboard:
-
-1. Start `CarlaUE4.exe` on Town04.
-2. Run `start_carla_dashboard.cmd` from the project root.
+Choose all healthy sensors or one faulty wheel in the browser before starting.
+A small Pygame status window reports the controls and selected fault, while the
+3D chase view remains in `CarlaUE4.exe`. WASD or the arrow keys drive, Space
+applies the handbrake, and Escape stops the session. No RGB camera sensor is
+created and only measurements are sent to the browser dashboard.
