@@ -50,14 +50,16 @@ is a documented prototype heuristic, not a calibrated failure probability.
 
 The home dashboard also supports a live CARLA session:
 
-1. Start the CARLA server directly on Town04 using the more stable D3D11 path:
-   `CarlaUE4.exe /Game/Carla/Maps/Town04 -quality-level=Low -dx11 -windowed -ResX=960 -ResY=540`.
-2. Start this platform with `start_carla_dashboard.cmd` or
-   `start_diagnostic_platform.cmd`.
-3. Select all-healthy sensors or one faulty wheel in the Pygame setup screen.
-4. Press Enter. The live Pygame diagnostic dashboard opens.
-5. Drive with WASD or the arrow keys; Space applies the handbrake and Escape
+1. Run `start_carla_dashboard.cmd` or `start_diagnostic_platform.cmd`. The
+   launcher removes stale project processes, starts exactly one CARLA Town04
+   server with D3D11, starts the model API, and opens the Pygame dashboard.
+2. Select all-healthy sensors or one faulty wheel in the Pygame setup screen.
+3. Press Enter. The live Pygame diagnostic dashboard opens.
+4. Drive with WASD or the arrow keys; Space applies the handbrake and Escape
    stops the session.
+
+Closing the Pygame dashboard stops its driver, the diagnostic API, and both
+CARLA wrapper/shipping processes, so the next session starts cleanly.
 
 The driving window remains local. Only compact 100 Hz ABS telemetry is sent to
 the diagnostic API. GRU/SPC starts after its 20-sample warm-up, and CNN/GRU is

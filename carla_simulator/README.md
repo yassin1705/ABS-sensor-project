@@ -19,3 +19,7 @@ the drive it displays four live wheel cards, health percentages, final model/SPC
 decisions, selected-wheel details, and residual history. The 3D chase view stays
 in `CarlaUE4.exe`. WASD or the arrow keys drive, Space applies the handbrake,
 and Escape stops the session. No RGB camera sensor or browser is used.
+
+Use `start_carla_dashboard.cmd` from the project root. It starts CARLA, the API,
+and Pygame together and removes all of those session processes when Pygame is
+closed.
