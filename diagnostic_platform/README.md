@@ -60,10 +60,11 @@ The home dashboard also supports a live CARLA session:
 
 ### Combined CARLA camera and dashboard
 
-For a single local driving and diagnostic window, start CARLA and then run
-`start_carla_dashboard.cmd`. Select the sensor condition inside the Pygame
-window and press Enter. This launcher starts only the model API and combined
-CARLA client; the browser dashboard is not required.
+For a simple native cockpit diagnostic view, start CARLA and then run
+`start_carla_dashboard.cmd`. Select the sensor condition in the temporary
+Pygame setup window and press Enter. The setup window closes, CARLA switches to
+the cockpit spectator, and four wheel-health percentages appear in the 3D
+view. The browser dashboard is not required.
 
 The driving window remains local. Only compact 100 Hz ABS telemetry is sent to
 the diagnostic API. GRU/SPC starts after its 20-sample warm-up, and CNN/GRU is

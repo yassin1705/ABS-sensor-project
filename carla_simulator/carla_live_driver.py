@@ -128,29 +128,6 @@ class DiagnosticStateReader:
             self._stop.wait(0.5)
 
 
-class CameraBuffer:
-    """Keep only the newest CARLA RGB frame for the Pygame renderer."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._frame: tuple[int, int, bytes, int] | None = None
-        self._sequence = 0
-
-    def update(self, image: Any) -> None:
-        with self._lock:
-            self._sequence += 1
-            self._frame = (
-                int(image.width),
-                int(image.height),
-                bytes(image.raw_data),
-                self._sequence,
-            )
-
-    def latest(self) -> tuple[int, int, bytes, int] | None:
-        with self._lock:
-            return self._frame
-
-
 class GlobalKeyboardControl:
     """Capture driving keys even while the CARLA server window has focus."""
 
@@ -232,18 +209,6 @@ FAULT_OPTIONS = (
     ("RR", "Rear-right sensor faulty"),
 )
 
-STATE_COLORS = {
-    "HEALTHY": (43, 190, 125),
-    "COLLECTING": (85, 135, 175),
-    "WARNING": (245, 174, 66),
-    "CROSS_EFFECT": (245, 174, 66),
-    "AMBIGUOUS": (245, 174, 66),
-    "INSUFFICIENT_SIGNAL": (245, 174, 66),
-    "SUSPECTED_FAULTY": (239, 96, 96),
-    "CONFIRMED_FAULTY": (239, 68, 68),
-}
-
-
 def choose_fault(display: Any, fonts: dict[str, Any], default: str) -> str:
     """Show the pre-drive sensor-state selector in the combined window."""
     selected = next(
@@ -309,104 +274,35 @@ def choose_fault(display: Any, fonts: dict[str, Any], default: str) -> str:
         clock.tick(30)
 
 
-def _text(surface: Any, font: Any, value: str, color: tuple[int, int, int], x: int, y: int) -> None:
-    surface.blit(font.render(value, True, color), (x, y))
-
-
-def render_hud(
-    display: Any,
-    camera_surface: Any | None,
-    camera_width: int,
-    fonts: dict[str, Any],
-    state: dict[str, Any],
-    state_error: str | None,
-    measurements: dict[str, dict[str, float | bool | str]],
-    timestamp_s: float,
-    vehicle_speed_mps: float,
-    configured_fault: str,
-) -> None:
-    """Render the CARLA view and compact four-wheel diagnostic board."""
-    if camera_surface is None:
-        display.fill((8, 18, 27))
-        message = fonts["body"].render("Waiting for CARLA RGB camera…", True, (147, 169, 187))
-        display.blit(message, message.get_rect(center=(camera_width // 2, display.get_height() // 2)))
-    else:
-        display.blit(camera_surface, (0, 0))
-
-    # Camera overlay keeps the most important driving information readable.
-    overlay = pygame.Surface((camera_width, 76), pygame.SRCALPHA)
-    overlay.fill((4, 13, 21, 205))
-    display.blit(overlay, (0, 0))
-    _text(display, fonts["heading"], "CARLA · ABS LIVE", (237, 246, 250), 20, 14)
-    _text(
-        display,
-        fonts["small"],
-        f"{vehicle_speed_mps * 3.6:5.1f} km/h   ·   {timestamp_s:6.1f} s   ·   WASD/arrows drive   SPACE brake   ESC stop",
-        (174, 195, 210),
-        20,
-        46,
-    )
-
-    panel_x = camera_width
-    panel_width = display.get_width() - camera_width
-    pygame.draw.rect(display, (7, 17, 26), (panel_x, 0, panel_width, display.get_height()))
-    _text(display, fonts["title"], "WHEEL DIAGNOSTICS", (236, 245, 250), panel_x + 22, 20)
-    fault_label = "ALL HEALTHY" if configured_fault == "none" else f"INJECTED FAULT · {configured_fault}"
-    _text(display, fonts["small"], fault_label, (100, 224, 187), panel_x + 23, 58)
-
+def draw_cockpit_health(world: Any, vehicle: Any, state: dict[str, Any]) -> None:
+    """Draw four wheel-health percentages in front of the native cockpit view."""
     diagnostic = state.get("diagnostic") or {}
     wheel_summaries = diagnostic.get("wheels") or {}
-    latest_frames = diagnostic.get("frames") or []
-    latest_wheels = latest_frames[-1].get("wheels", {}) if latest_frames else {}
-    sample_count = int(state.get("sample_count", 0))
-    _text(display, fonts["small"], f"{sample_count} samples", (131, 154, 173), panel_x + 23, 82)
+    transform = vehicle.get_transform()
+    lateral_positions = {"FL": -0.72, "FR": -0.24, "RL": 0.24, "RR": 0.72}
 
-    card_top = 112
-    gap = 12
-    card_width = (panel_width - 56) // 2
-    card_height = 205
-    for index, wheel in enumerate(WHEELS):
-        column, row = index % 2, index // 2
-        rect = pygame.Rect(
-            panel_x + 20 + column * (card_width + gap),
-            card_top + row * (card_height + gap),
-            card_width,
-            card_height,
-        )
+    for wheel in WHEELS:
         summary = wheel_summaries.get(wheel, {})
-        decision = summary.get("decision", {})
-        decision_state = str(decision.get("state", "COLLECTING"))
-        color = STATE_COLORS.get(decision_state, (85, 135, 175))
-        pygame.draw.rect(display, (14, 31, 44), rect, border_radius=12)
-        pygame.draw.rect(display, color, rect, width=2, border_radius=12)
-        _text(display, fonts["heading"], wheel, (238, 246, 250), rect.x + 14, rect.y + 12)
-        compact_state = decision_state.replace("_", " ")
-        if len(compact_state) > 18:
-            compact_state = compact_state.replace("CONFIRMED ", "CONF. ").replace("INSUFFICIENT ", "INSUFF. ")
-        _text(display, fonts["tiny"], compact_state, color, rect.x + 14, rect.y + 43)
-
-        current = latest_wheels.get(wheel, {})
-        measured = current.get("measured_mps")
-        if measured is None:
-            measured = measurements.get(wheel, {}).get("speed_mps", 0.0)
-        residual = current.get("residual_mps")
-        probability = float(decision.get("independent_probability", 0.0) or 0.0)
         health = float(summary.get("health", {}).get("health_percent", 100.0) or 0.0)
-        valid = bool(measurements.get(wheel, {}).get("valid", False))
-        _text(display, fonts["tiny"], "SPEED", (120, 145, 164), rect.x + 14, rect.y + 77)
-        _text(display, fonts["body"], f"{float(measured or 0.0) * 3.6:5.1f} km/h", (223, 235, 242), rect.x + 14, rect.y + 95)
-        residual_text = "—" if residual is None else f"{float(residual):+.3f} m/s"
-        _text(display, fonts["tiny"], f"Residual  {residual_text}", (153, 174, 190), rect.x + 14, rect.y + 128)
-        _text(display, fonts["tiny"], f"Model     {probability * 100:5.1f}%", (153, 174, 190), rect.x + 14, rect.y + 150)
-        _text(display, fonts["tiny"], f"Health    {health:5.1f}%   {'VALID' if valid else 'LOSS'}", (153, 174, 190), rect.x + 14, rect.y + 172)
+        decision = str(summary.get("decision", {}).get("state", "COLLECTING"))
+        if decision in {"CONFIRMED_FAULTY", "SUSPECTED_FAULTY"}:
+            color = carla.Color(255, 65, 65)
+        elif decision in {"WARNING", "CROSS_EFFECT", "AMBIGUOUS"}:
+            color = carla.Color(255, 190, 55)
+        else:
+            color = carla.Color(70, 255, 165)
 
-    footer_y = card_top + 2 * (card_height + gap) + 4
-    primary = (diagnostic.get("isolation") or {}).get("primary_wheel")
-    message = f"Primary isolated wheel: {primary}" if primary else "Primary isolated wheel: none"
-    _text(display, fonts["small"], message, (174, 195, 210), panel_x + 22, footer_y)
-    warning = state_error or state.get("telemetry_warning")
-    if warning:
-        _text(display, fonts["tiny"], str(warning)[:58], (239, 96, 96), panel_x + 22, footer_y + 27)
+        location = transform.transform(
+            carla.Location(x=2.1, y=lateral_positions[wheel], z=1.08)
+        )
+        world.debug.draw_string(
+            location,
+            f"{wheel} {health:3.0f}%",
+            draw_shadow=True,
+            color=color,
+            life_time=0.15,
+            persistent_lines=False,
+        )
 
 
 def build_frame(
@@ -437,8 +333,8 @@ def run(arguments: argparse.Namespace) -> None:
 
     pygame.init()
     pygame.font.init()
-    display_width = max(1100, arguments.width)
-    display_height = max(650, arguments.height)
+    display_width = max(720, arguments.width)
+    display_height = max(600, arguments.height)
     display = pygame.display.set_mode((display_width, display_height))
     pygame.display.set_caption("CARLA drive · ABS diagnostic board")
     fonts = {
@@ -462,6 +358,9 @@ def run(arguments: argparse.Namespace) -> None:
         "/api/live/driver-config",
         {"fault_wheel": selected_fault},
     )["config"]
+    # Pygame is used only for pre-drive configuration. The actual drive uses
+    # CARLA's native window, avoiding the unstable RGB PixelReader path.
+    pygame.quit()
 
     geometry = VehicleGeometry()
     sensor_config = SensorConfig()
@@ -476,12 +375,8 @@ def run(arguments: argparse.Namespace) -> None:
     ecu = ABSECU(geometry, sensor_config, ECUConfig(sample_time_s=0.01))
 
     client = carla.Client(arguments.host, arguments.port)
-    client.set_timeout(20.0)
+    client.set_timeout(60.0)
     world = client.get_world()
-    requested_map = str(config["map"])
-    current_map = world.get_map().name.rsplit("/", 1)[-1]
-    if current_map != requested_map:
-        world = client.load_world(requested_map)
     original_settings = world.get_settings()
     settings = world.get_settings()
     settings.synchronous_mode = True
@@ -492,11 +387,9 @@ def run(arguments: argparse.Namespace) -> None:
     world.apply_settings(settings)
 
     vehicle = None
-    camera = None
     publisher = TelemetryPublisher(arguments.api_url)
     keyboard_control = GlobalKeyboardControl()
     state_reader: DiagnosticStateReader | None = None
-    camera_buffer = CameraBuffer()
 
     try:
         blueprints = list(world.get_blueprint_library().filter(config["vehicle_filter"]))
@@ -506,23 +399,6 @@ def run(arguments: argparse.Namespace) -> None:
         vehicle = world.try_spawn_actor(blueprints[0], spawn_points[0])
         if vehicle is None:
             raise RuntimeError("Could not spawn the CARLA vehicle.")
-
-        camera_width = display_width - 430
-        camera_blueprint = world.get_blueprint_library().find("sensor.camera.rgb")
-        camera_blueprint.set_attribute("image_size_x", str(camera_width))
-        camera_blueprint.set_attribute("image_size_y", str(display_height))
-        camera_blueprint.set_attribute("fov", "95")
-        camera_blueprint.set_attribute("sensor_tick", "0.033333")
-        camera = world.spawn_actor(
-            camera_blueprint,
-            carla.Transform(
-                carla.Location(x=-6.5, z=3.2),
-                carla.Rotation(pitch=-12.0),
-            ),
-            attach_to=vehicle,
-            attachment_type=carla.AttachmentType.Rigid,
-        )
-        camera.listen(camera_buffer.update)
 
         api_request(
             arguments.api_url,
@@ -535,16 +411,9 @@ def run(arguments: argparse.Namespace) -> None:
         steer_cache = 0.0
         sample_index = 0
         batch: list[dict[str, Any]] = []
-        clock = pygame.time.Clock()
-        cached_camera_surface = None
-        cached_camera_sequence = -1
-        latest_measurements: dict[str, dict[str, float | bool | str]] = {
-            wheel: {"speed_mps": 0.0, "valid": False} for wheel in WHEELS
-        }
+        spectator = world.get_spectator()
         while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
+            loop_started = time.perf_counter()
             control, steer_cache, escape = keyboard_control.control(steer_cache)
             if escape:
                 running = False
@@ -553,20 +422,17 @@ def run(arguments: argparse.Namespace) -> None:
             sample_index += 1
             timestamp_s = sample_index * 0.01
 
-            # Keep the actual CARLA server spectator behind the ego vehicle.
-            # No RGB images are captured or transferred to Python/browser.
+            # Native spectator cockpit: no RGB sensor and therefore no
+            # PixelReader render/copy path that can crash packaged CARLA.
             vehicle_transform = vehicle.get_transform()
-            forward = vehicle_transform.get_forward_vector()
-            spectator_location = carla.Location(
-                x=vehicle_transform.location.x - forward.x * 6.5,
-                y=vehicle_transform.location.y - forward.y * 6.5,
-                z=vehicle_transform.location.z + 3.2,
+            cockpit_location = vehicle_transform.transform(
+                carla.Location(x=0.35, y=-0.32, z=1.25)
             )
-            world.get_spectator().set_transform(
+            spectator.set_transform(
                 carla.Transform(
-                    spectator_location,
+                    cockpit_location,
                     carla.Rotation(
-                        pitch=-14.0,
+                        pitch=-3.0,
                         yaw=vehicle_transform.rotation.yaw,
                         roll=0.0,
                     ),
@@ -576,7 +442,6 @@ def run(arguments: argparse.Namespace) -> None:
             estimated, _ = estimator.estimate(vehicle)
             arrivals, _ = pulse_sensor.step(timestamp_s, 0.01, estimated)
             measurements = ecu.step(timestamp_s, arrivals)
-            latest_measurements = measurements
             batch.append(build_frame(vehicle, timestamp_s, control, measurements))
             if len(batch) >= 10:
                 publisher.publish(batch)
@@ -587,31 +452,13 @@ def run(arguments: argparse.Namespace) -> None:
                 if state.get("stop_requested"):
                     running = False
 
-            camera_frame = camera_buffer.latest()
-            if camera_frame is not None and camera_frame[3] != cached_camera_sequence:
-                frame_width, frame_height, raw_data, cached_camera_sequence = camera_frame
-                cached_camera_surface = pygame.image.frombuffer(
-                    raw_data,
-                    (frame_width, frame_height),
-                    "BGRA",
-                ).convert()
-            hud_state, hud_error = state_reader.snapshot()
-            velocity = vehicle.get_velocity()
-            vehicle_speed = (velocity.x**2 + velocity.y**2 + velocity.z**2) ** 0.5
-            render_hud(
-                display,
-                cached_camera_surface,
-                camera_width,
-                fonts,
-                hud_state,
-                hud_error,
-                latest_measurements,
-                timestamp_s,
-                vehicle_speed,
-                str(config["fault_wheel"]),
-            )
-            pygame.display.flip()
-            clock.tick_busy_loop(100)
+            if sample_index % 10 == 0:
+                hud_state, _ = state_reader.snapshot()
+                draw_cockpit_health(world, vehicle, hud_state)
+
+            remaining = 0.01 - (time.perf_counter() - loop_started)
+            if remaining > 0:
+                time.sleep(remaining)
 
         if batch:
             publisher.publish(batch)
@@ -622,9 +469,6 @@ def run(arguments: argparse.Namespace) -> None:
             if state_reader is not None:
                 state_reader.close()
             keyboard_control.close()
-            if camera is not None:
-                camera.stop()
-                camera.destroy()
             if vehicle is not None:
                 vehicle.destroy()
             world.apply_settings(original_settings)
@@ -640,8 +484,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-url", default="http://127.0.0.1:8765")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2000)
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--width", type=int, default=760)
+    parser.add_argument("--height", type=int, default=600)
     return parser
 
 

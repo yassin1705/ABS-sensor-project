@@ -14,11 +14,13 @@ environment:
 wheel speeds, emulates ABS pulses and the ECU, and publishes measurement batches
 to the local diagnostic API.
 
-The Pygame client is now the main operating window. Before driving, choose all
-healthy sensors or one faulty wheel with 1-5 and press Enter. The window then
-shows the CARLA RGB chase camera beside four live diagnostic cards. WASD or the
-arrow keys drive, Space applies the handbrake, and Escape stops the session.
-The camera remains local; only measurements are sent to the diagnostic API.
+Before driving, the Pygame setup window lets you choose all healthy sensors or
+one faulty wheel with 1-5 and Enter. It then closes, and CARLA's native
+spectator follows the vehicle from a cockpit position. Four wheel-health
+percentages are drawn in the native 3D view. No RGB camera sensor is created,
+which avoids CARLA's packaged PixelReader crash. WASD or the arrow keys drive,
+Space applies the handbrake, and Escape stops the session. Only measurements
+are sent to the diagnostic API.
 
 To run without the browser dashboard:
 
