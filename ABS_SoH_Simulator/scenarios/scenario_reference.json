@@ -1,0 +1,56 @@
+{
+  "meta": {
+    "name": "reference_run",
+    "description": "Freinage en ligne droite depuis 80 km/h, perte intermittente FL a 8s",
+    "seed": 42
+  },
+  "simulation": {
+    "dt": 0.01,
+    "duration": 15.0
+  },
+  "vehicle": {
+    "mass": 1400,
+    "wheelRadius": 0.31,
+    "track": 1.55,
+    "wheelbase": 2.65,
+    "muRoad": 0.9,
+    "yawInertia": 2100
+  },
+  "scenario": {
+    "type": "straight_braking",
+    "initialSpeed_kmh": 80,
+    "brakeStartTime": 8.0,
+    "brakeCommand": 0.6,
+    "throttleCommand": 0.8,
+    "steeringCommand": 0.0
+  },
+  "sensor": {
+    "edgesPerRevolution": {
+      "FL": 48,
+      "FR": 48,
+      "RL": 48,
+      "RR": 48
+    }
+  },
+  "sensorErrors": {
+    "mode": "healthy_realistic",
+    "randomSeed": 42,
+    "latencyMs": 0.2,
+    "absoluteJitterUs": 2.0,
+    "relativeJitterPercent": 0.05
+  },
+  "ecu": {
+    "sampleTime": 0.01,
+    "noPulseTimeout": 0.3
+  },
+  "faults": [
+    {
+      "wheel": "FL",
+      "type": "intermittent_loss",
+      "startTime": 8.0,
+      "endTime": 12.0,
+      "severity": 0.5,
+      "params": { "dropoutProbability": 0.3 }
+    }
+  ]
+}

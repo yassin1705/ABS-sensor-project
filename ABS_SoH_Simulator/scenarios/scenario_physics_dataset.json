@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "name": "physics_dataset_base",
+    "description": "Configuration de base pour la generation des experiences physiques",
+    "seed": 1000
+  },
+  "simulation": {
+    "dt": 0.01,
+    "duration": 5.0
+  },
+  "vehicle": {
+    "mass": 1400,
+    "wheelRadius": 0.31,
+    "track": 1.55,
+    "wheelbase": 2.65,
+    "muRoad": 0.9,
+    "yawInertia": 2100
+  },
+  "dynamics": {
+    "model": "longitudinal_wheel_slip",
+    "wheelInertia": 1.2,
+    "maxDriveTorque": 1600,
+    "slipShapeFactor": 8.0,
+    "rollingResistanceCoefficient": 0.012,
+    "aerodynamicDragCoefficient": 0.45,
+    "cgHeight": 0.55,
+    "distanceCGToFrontAxle": 1.15,
+    "lowSpeedRegularization": 0.5,
+    "lockSlipThreshold": 0.95,
+    "minimumLockSpeed": 2.0
+  },
+  "brakeSystem": {
+    "maxBrakeTorque": 10000,
+    "frontDistribution": 0.62
+  },
+  "road": {
+    "muRoad": 0.9
+  },
+  "scenario": {
+    "type": "segments",
+    "initialSpeed_kmh": 70,
+    "segments": [
+      {
+        "startTime": 0.0,
+        "endTime": 5.0,
+        "throttle": 0.0,
+        "brake": 0.0,
+        "steering": 0.0
+      }
+    ],
+    "defaultCommand": {
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0
+    }
+  },
+  "sensor": {
+    "edgesPerRevolution": {
+      "FL": 48,
+      "FR": 48,
+      "RL": 48,
+      "RR": 48
+    }
+  },
+  "sensorErrors": {
+    "mode": "healthy_realistic",
+    "randomSeed": 1000,
+    "latencyMs": 0.2,
+    "absoluteJitterUs": 2.0,
+    "relativeJitterPercent": 0.05
+  },
+  "ecu": {
+    "sampleTime": 0.01,
+    "noPulseTimeout": 0.3
+  }
+}

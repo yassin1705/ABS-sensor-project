@@ -1,0 +1,4 @@
+carla==0.9.16
+numpy>=1.26,<3
+pygame>=2.5,<3
+pynput>=1.7,<2

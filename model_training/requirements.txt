@@ -1,0 +1,8 @@
+torch>=2.2
+numpy>=1.26
+pandas>=2.1
+h5py>=3.10
+matplotlib>=3.8
+jupyterlab>=4.0
+tensorboard>=2.15
+onnx>=1.16

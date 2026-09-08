@@ -1,0 +1,13 @@
+if (-not $env:CARLA_ROOT) {
+    throw "Set CARLA_ROOT to the CARLA 0.9.16 installation directory."
+}
+
+Set-Location $env:CARLA_ROOT
+
+.\CarlaUE4.exe `
+  /Game/Carla/Maps/Town04 `
+  -quality-level=Low `
+  -dx11 `
+  -windowed `
+  -ResX=960 `
+  -ResY=540

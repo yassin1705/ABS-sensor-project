@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_carla_dashboard.ps1"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_carla_dashboard.ps1" %*
 
 if errorlevel 1 (
     echo.

@@ -1,0 +1,1 @@
+"""Local ABS diagnostic platform."""

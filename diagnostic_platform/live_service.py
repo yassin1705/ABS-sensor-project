@@ -33,6 +33,7 @@ def _default_config() -> dict[str, Any]:
         "fault_severity": 0.8,
         "map": "Town04",
         "vehicle_filter": "vehicle.tesla.model3",
+        "view_mode": "combined",
     }
 
 
@@ -71,6 +72,9 @@ class LiveDiagnosticService:
             raise ValueError("fault_severity must be between 0 and 1.")
         if start < 0.0 or duration <= 0.0:
             raise ValueError("Fault start must be non-negative and duration positive.")
+        view_mode = str(config["view_mode"]).lower()
+        if view_mode not in {"combined", "separate"}:
+            raise ValueError("view_mode must be combined or separate.")
         config.update(
             fault_wheel=wheel,
             fault_severity=severity,
@@ -78,6 +82,7 @@ class LiveDiagnosticService:
             fault_duration_s=duration,
             map=str(config["map"]),
             vehicle_filter=str(config["vehicle_filter"]),
+            view_mode=view_mode,
         )
         return config
 
@@ -117,6 +122,8 @@ class LiveDiagnosticService:
                     str(CARLA_DRIVER),
                     "--api-url",
                     DEFAULT_API_URL,
+                    "--view-mode",
+                    str(self._config["view_mode"]),
                 ],
                 cwd=PROJECT_ROOT,
             )

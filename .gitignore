@@ -1,0 +1,116 @@
+# Python bytecode and tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+carla_env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Generated datasets and data caches (not distributed)
+*.csv
+*.tsv
+*.mat
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.parquet
+*.feather
+ABS_SoH_Simulator/simulation_results/
+carla_simulator/simulation_results/
+model_training/cache/
+fault_parameter_training/cache/
+
+# Trained models and experiment outputs (not distributed)
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.joblib
+*.pkl
+*.pickle
+events.out.tfevents.*
+model_training/experiments/
+model_training/exports/
+fault_parameter_training/experiments/
+smoke_experiments/
+smoke_experiments_fast/
+
+# Generated evaluation, replay, and runtime output
+output/
+tmp/
+model_training/spc_calibration/
+model_training/spc_calibration_poc/
+model_training/spc_replay/
+model_training/spc_replay_check/
+model_training/spc_launcher_check/
+model_training/spc_healthy_regression_check/
+fault_parameter_training/combined_replay/
+
+# Reports, presentations, and other project documents
+documents/
+presentation/
+architecture-presentation/
+ABS_SoH_Simulator/docs/
+*.pdf
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.tex
+*.inspect.ndjson
+
+# Duplicate/local project copies
+Diagnostic intelligent des capteurs ABS/
+Diagnostic intelligent des capteurs ABS - Copy/
+* - Copy*
+transcribe_lid_routed_audio.py
+
+# Jupyter, IDEs, and editors
+.ipynb_checkpoints/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# JavaScript build output
+node_modules/
+dist/
+.next/
+.vinext/
+.wrangler/
+*.tsbuildinfo
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Compiled MATLAB and LaTeX output
+*.mex*
+*.asv
+*.aux
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.nav
+*.snm
+*.toc

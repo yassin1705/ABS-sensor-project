@@ -1,10 +1,22 @@
+param(
+    [ValidateSet("combined", "separate")]
+    [string]$ViewMode = "combined"
+)
+
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonExe = Join-Path $projectRoot "model_training\.venv\Scripts\python.exe"
-$carlaRoot = "D:\CARLA_0.9.16"
+$pythonExe = if ($env:PFA_PYTHON_EXE) {
+    $env:PFA_PYTHON_EXE
+} else {
+    Join-Path $projectRoot "model_training\.venv\Scripts\python.exe"
+}
+if (-not $env:CARLA_ROOT) {
+    throw "CARLA_ROOT is not set. Point it to the CARLA 0.9.16 installation directory."
+}
+$carlaRoot = $env:CARLA_ROOT
 $carlaExe = Join-Path $carlaRoot "CarlaUE4.exe"
-$apiPort = 8765
+$apiPort = if ($env:PFA_API_PORT) { [int]$env:PFA_API_PORT } else { 8765 }
 $apiBase = "http://127.0.0.1:$apiPort"
 $apiProcess = $null
 $carlaProcess = $null
@@ -51,10 +63,20 @@ try {
         throw "Port $apiPort is still occupied by PID $($apiPortOwner.OwningProcess)."
     }
 
-    Write-Host "Starting one CARLA server on Town04..."
+    Write-Host "Starting one CARLA server on Town04 ($ViewMode view)..."
+    $carlaArguments = @(
+        "/Game/Carla/Maps/Town04",
+        "-quality-level=Low",
+        "-dx11"
+    )
+    if ($ViewMode -eq "combined") {
+        $carlaArguments += "-RenderOffScreen"
+    } else {
+        $carlaArguments += @("-windowed", "-ResX=960", "-ResY=540")
+    }
     $carlaProcess = Start-Process `
         -FilePath $carlaExe `
-        -ArgumentList "/Game/Carla/Maps/Town04", "-quality-level=Low", "-dx11", "-windowed", "-ResX=960", "-ResY=540" `
+        -ArgumentList $carlaArguments `
         -WorkingDirectory $carlaRoot `
         -PassThru
 
@@ -97,9 +119,9 @@ try {
         throw "The diagnostic API did not start on $apiBase."
     }
 
-    Write-Host "Starting the CARLA Pygame ABS dashboard..."
+    Write-Host "Starting the CARLA Pygame ABS dashboard in $ViewMode mode..."
 
-    $body = @{ fault_wheel = "none" } | ConvertTo-Json
+    $body = @{ fault_wheel = "none"; view_mode = $ViewMode } | ConvertTo-Json
     Invoke-RestMethod `
         -Uri "$apiBase/api/live/start" `
         -Method Post `

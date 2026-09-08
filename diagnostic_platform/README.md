@@ -52,7 +52,8 @@ The home dashboard also supports a live CARLA session:
 
 1. Run `start_carla_dashboard.cmd` or `start_diagnostic_platform.cmd`. The
    launcher removes stale project processes, starts exactly one CARLA Town04
-   server with D3D11, starts the model API, and opens the Pygame dashboard.
+   server with D3D11, starts the model API, and opens the CARLA camera and
+   Pygame dashboard together in one window.
 2. Select all-healthy sensors or one faulty wheel in the Pygame setup screen.
 3. Press Enter. The live Pygame diagnostic dashboard opens.
 4. Drive with WASD or the arrow keys; Space applies the handbrake and Escape
@@ -69,3 +70,5 @@ evaluated on a rolling 500-sample window every 50 new samples.
 
 Double-click `start_carla_dashboard.cmd` at the project root. The launcher
 starts the Python API and Pygame dashboard; no web server or browser is needed.
+If combined rendering fails, double-click `start_diagnostic_platform_separate.cmd`
+to restore the native CARLA window and separate Pygame dashboard.
